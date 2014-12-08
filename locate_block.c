@@ -214,10 +214,11 @@ inline int extract_block(char * board, int width, int height, int bound_x, int b
                         *found_capacity += BLOCK_INC;
                         *found_blocks = realloc(*found_blocks, sizeof(block_t) * *found_capacity);
                     }
-                    (*found_blocks)[found_offset+found_n].x = x0;
-                    (*found_blocks)[found_offset+found_n].y = y0;
-                    (*found_blocks)[found_offset+found_n].width = x1-x0;
-                    (*found_blocks)[found_offset+found_n].height = y1-y0;
+                    block_t * block_slot = *found_blocks + found_offset + found_n;
+                    block_slot->x = x0;
+                    block_slot->y = y0;
+                    block_slot->width = x1-x0;
+                    block_slot->height = y1-y0;
                     ++found_n;
 #ifdef DEBUG2
                     fprintf(stderr, "%d %d %d %d\n", x0, y0, x1-x0, y1-y0);
