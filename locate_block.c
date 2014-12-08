@@ -327,9 +327,9 @@ int main(){
         for(int y=0; y<height; ++y)
             for(int x3=0; x3<width*3; x3+=3, ++p)
                 if(
-                    row_pointers[y][x3]==255 &&
-                    row_pointers[y][x3+1]==255 &&
-                    row_pointers[y][x3+2]==255
+                    row_pointers[y][x3]>200 &&
+                    row_pointers[y][x3+1]>200 &&
+                    row_pointers[y][x3+2]>200
                 )
                     *p = IMG;
                 else
