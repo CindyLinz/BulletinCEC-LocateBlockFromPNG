@@ -3,6 +3,18 @@
 #include <string.h>
 #include <png.h>
 
+//#define DEBUG
+
+#define BLOCK_INC (64)
+
+// board pixel bits usage:
+const unsigned char TRY_DIR  =   1; // current trying h or v direction: 0.h, 1.v
+const unsigned char TRY_STEP =   2; // current trying step: 0.dec, 1.inc
+const unsigned char PAR_DIR  =   4; // parent h or v direction: 0.h, 1.v
+const unsigned char PAR_STEP =   8; // parent step: 0.dec, 1.inc
+const unsigned char VISITED  =  16; // is visited pixel: 0.no, 1.yes
+const unsigned char IS_FRAME = 128; // is frame: 0.no, 1.yes
+
 inline int move_cursor(int width, int height, unsigned char pos_dir, unsigned char pos_step, int cursor){
     if( pos_dir )
         if( pos_step )
@@ -26,6 +38,195 @@ inline int move_cursor(int width, int height, unsigned char pos_dir, unsigned ch
                 return cursor - 1;
             else
                 return -1;
+}
+
+inline void flood_paint(png_bytepp img, unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, png_bytep frame_color, char neg_mode, int x0, int y0){
+    int cursor0 = y0 * width + x0;
+    int cursor = cursor0;
+#ifdef DEBUG
+    fprintf(stderr, "flood_paint %dx%d+%d+%d at (%d,%d)\n", bound_width, bound_height, bound_x, bound_y, x0, y0);
+#endif
+
+    {
+        int x3 = x0 * 3;
+        char color_match =
+            img[y0][x3]==frame_color[0] &&
+            img[y0][x3+1]==frame_color[1] &&
+            img[y0][x3+2]==frame_color[2];
+
+        if( !( (!neg_mode && color_match) || (neg_mode && !color_match) ) )
+            return;
+    }
+
+    while(1){
+        unsigned char pixel = board[cursor];
+#ifdef DEBUG
+        {
+            int x = cursor % width;
+            int y = cursor / width;
+            char par, try;
+            if( pixel & TRY_DIR )
+                if( pixel & TRY_STEP )
+                    try = 'v';
+                else
+                    try = '^';
+            else
+                if( pixel & TRY_STEP )
+                    try = '>';
+                else
+                    try = '<';
+            if( pixel & PAR_DIR )
+                if( pixel & PAR_STEP )
+                    par = 'v';
+                else
+                    par = '^';
+            else
+                if( pixel & PAR_STEP )
+                    par = '>';
+                else
+                    par = '<';
+            fprintf(stderr, "cursor=%d (%d, %d) par=%c try=%c\n", cursor, x, y, par, try);
+        }
+#endif
+        if( pixel & VISITED ){
+            if( pixel & TRY_DIR )
+                if( pixel & TRY_STEP ){
+                    if( cursor==cursor0 )
+                        break;
+                    else
+                        cursor = move_cursor(width, height, pixel&PAR_DIR, pixel&PAR_STEP, cursor); // without check
+                }
+                else{
+                    board[cursor] |= TRY_STEP;
+                    int cursor2 = move_cursor(width, height, 1, 1, cursor);
+                    if( cursor2>=0 && !(board[cursor2] & VISITED) ){
+                        cursor = cursor2;
+                        board[cursor2] = PAR_DIR;
+                    }
+                }
+            else
+                if( pixel & TRY_STEP ){
+                    board[cursor] |= TRY_DIR;
+                    board[cursor] &= ~TRY_STEP;
+                    int cursor2 = move_cursor(width, height, 1, 0, cursor);
+                    if( cursor2>=0 && !(board[cursor2] & VISITED) ){
+                        cursor = cursor2;
+                        board[cursor2] = PAR_DIR | PAR_STEP;
+                    }
+                }
+                else{
+                    board[cursor] |= TRY_STEP;
+                    int cursor2 = move_cursor(width, height, 0, 1, cursor);
+                    if( cursor2>=0 && !(board[cursor2] & VISITED) ){
+                        cursor = cursor2;
+                    }
+                }
+        }
+        else{
+            int x3 = cursor % width * 3;
+            int y = cursor / width;
+
+            char color_match =
+                img[y][x3]==frame_color[0] &&
+                img[y][x3+1]==frame_color[1] &&
+                img[y][x3+2]==frame_color[2];
+
+            if( (!neg_mode && color_match) || (neg_mode && !color_match) ){
+                board[cursor] |= VISITED | IS_FRAME;
+                int cursor2 = move_cursor(width, height, 0, 0, cursor);
+                if( cursor2>=0 && !(board[cursor2] & VISITED) ){
+                    cursor = cursor2;
+                    board[cursor2] = PAR_STEP;
+                }
+            }
+            else{
+                board[cursor] |= VISITED;
+                cursor = move_cursor(width, height, pixel&PAR_DIR, pixel&PAR_STEP, cursor); // without check
+            }
+        }
+    }
+}
+
+inline void paint_frame(png_bytepp img, unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, png_bytep frame_color, char neg_mode){
+    {
+        unsigned char * p = board + bound_y * width + bound_x;
+        for(int y=bound_y; y<bound_y+bound_height; ++y){
+            for(int x=bound_x; x<bound_x+bound_width; ++x, ++p)
+                *p = 0;
+            p = p - bound_width + width;
+        }
+    }
+
+    {
+        unsigned char * p1 = board + bound_y * width + bound_x;
+        unsigned char * p2 = board + (bound_y+bound_height-1) * width + bound_x;
+        for(int x=bound_x; x<bound_x+bound_width; ++x, ++p1, ++p2){
+            if( !(*p1 & VISITED) )
+                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, x, bound_y);
+            if( !(*p2 & VISITED) )
+                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, x, bound_y+bound_height-1);
+        }
+    }
+
+    {
+        unsigned char * p1 = board + bound_y * width + bound_x;
+        unsigned char * p2 = board + bound_y * width + bound_x+bound_width-1;
+        for(int y=bound_y; y<bound_y+bound_height; ++y, p1+=width, p2+=width){
+            if( !(*p1 & VISITED) )
+                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, bound_x, y);
+            if( !(*p2 & VISITED) )
+                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, bound_x+bound_width-1, y);
+        }
+    }
+}
+
+typedef struct {
+    int x, y, width, height;
+} block_t;
+
+inline int extract_block(char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, block_t** found_blocks, int* found_capacity){
+    int found_n = 0;
+
+    char * p0 = board + bound_y * width + bound_x;
+    for(int y0=bound_y; y0<bound_y+bound_height; ++y0)
+        for(int x0=bound_x; x0<bound_x+bound_width; ++x0, ++p0)
+            if( *p0 >= 0 ){
+                char *p = p0;
+                int x1 = x0;
+                for(x1=x0; x1<bound_x+bound_width && *p>=0; ++x1, ++p)
+                    *(unsigned char*)p |= IS_FRAME;
+
+                int y1;
+                for(y1=y0+1, p=p0+width; y1<bound_y+bound_height; ++y1, p+=width){
+                    int x;
+                    for(x=x0; x<x1 && *p>=0; ++x, ++p)
+                        *(unsigned char*)p |= IS_FRAME;
+                    p -= (x - x0);
+                    if( x < x1 ){ // in-complete row, put back
+                        while( x>x0 ){
+                            *(unsigned char*)p &= ~IS_FRAME;
+                            --x;
+                            ++p;
+                        }
+                        break;
+                    }
+                }
+
+                if( found_n >= *found_capacity ){
+                    *found_capacity += BLOCK_INC;
+                    *found_blocks = realloc(*found_blocks, sizeof(block_t) * *found_capacity);
+                }
+                (*found_blocks)[found_n].x = x0;
+                (*found_blocks)[found_n].y = y0;
+                (*found_blocks)[found_n].width = x1-x0;
+                (*found_blocks)[found_n].height = y1-y0;
+                ++found_n;
+#ifdef DEBUG
+                fprintf(stderr, "%d %d %d %d\n", x0, y0, x1-x0, y1-y0);
+#endif
+            }
+
+    return found_n;
 }
 
 int main(){
@@ -83,7 +284,7 @@ int main(){
     );
     fprintf(stderr, "width=%d, height=%d, bit_depth=%d, color_type=%d\ninterlace_type=%d, compression_type=%d, filter_method=%d\n", (int)width, (int)height, (int)bit_depth, color_type, interlace_type, compression_type, filter_method);
 
-    png_bytep *row_pointers = png_get_rows(png_ptr, info_ptr);
+    png_bytepp row_pointers = png_get_rows(png_ptr, info_ptr);
 
     fprintf(stderr, "row_pointers=%p\n", (void*)row_pointers);
     png_bytep frame_color = row_pointers[0];
@@ -92,102 +293,8 @@ int main(){
 
     int size = width * height;
     unsigned char *board = (unsigned char*) malloc(size);
-    memset(board, 0, size);
 
-    // board pixel bits usage:
-    const unsigned char TRY_DIR  =   1; // current trying h or v direction: 0.h, 1.v
-    const unsigned char TRY_STEP =   2; // current trying step: 0.dec, 1.inc
-    const unsigned char PAR_DIR  =   4; // parent h or v direction: 0.h, 1.v
-    const unsigned char PAR_STEP =   8; // parent step: 0.dec, 1.inc
-    const unsigned char VISITED  =  16; // is visited pixel: 0.no, 1.yes
-    const unsigned char IS_FRAME = 128; // is frame: 0.no, 1.yes
-
-    int cursor = 0;
-    while(1){
-        unsigned char pixel = board[cursor];
-#ifdef DEBUG
-        {
-            int x = cursor % width;
-            int y = cursor / width;
-            char par, try;
-            if( pixel & TRY_DIR )
-                if( pixel & TRY_STEP )
-                    try = 'v';
-                else
-                    try = '^';
-            else
-                if( pixel & TRY_STEP )
-                    try = '>';
-                else
-                    try = '<';
-            if( pixel & PAR_DIR )
-                if( pixel & PAR_STEP )
-                    par = 'v';
-                else
-                    par = '^';
-            else
-                if( pixel & PAR_STEP )
-                    par = '>';
-                else
-                    par = '<';
-            fprintf(stderr, "cursor=%d (%d, %d) par=%c try=%c\n", cursor, x, y, par, try);
-        }
-#endif
-        if( pixel & VISITED ){
-            if( pixel & TRY_DIR )
-                if( pixel & TRY_STEP ){
-                    if( cursor==0 )
-                        break;
-                    else
-                        cursor = move_cursor(width, height, pixel&PAR_DIR, pixel&PAR_STEP, cursor); // without check
-                }
-                else{
-                    board[cursor] |= TRY_STEP;
-                    int cursor2 = move_cursor(width, height, 1, 1, cursor);
-                    if( cursor2>=0 && !(board[cursor2] & VISITED) ){
-                        cursor = cursor2;
-                        board[cursor2] = PAR_DIR;
-                    }
-                }
-            else
-                if( pixel & TRY_STEP ){
-                    board[cursor] |= TRY_DIR;
-                    board[cursor] &= ~TRY_STEP;
-                    int cursor2 = move_cursor(width, height, 1, 0, cursor);
-                    if( cursor2>=0 && !(board[cursor2] & VISITED) ){
-                        cursor = cursor2;
-                        board[cursor2] = PAR_DIR | PAR_STEP;
-                    }
-                }
-                else{
-                    board[cursor] |= TRY_STEP;
-                    int cursor2 = move_cursor(width, height, 0, 1, cursor);
-                    if( cursor2>=0 && !(board[cursor2] & VISITED) ){
-                        cursor = cursor2;
-                    }
-                }
-        }
-        else{
-            int x3 = cursor % width * 3;
-            int y = cursor / width;
-            if(
-                row_pointers[y][x3]==frame_color[0] &&
-                row_pointers[y][x3+1]==frame_color[1] &&
-                row_pointers[y][x3+2]==frame_color[2]
-            ){
-                board[cursor] |= VISITED | IS_FRAME;
-                int cursor2 = move_cursor(width, height, 0, 0, cursor);
-                if( cursor2>=0 && !(board[cursor2] & VISITED) ){
-                    cursor = cursor2;
-                    board[cursor2] = PAR_STEP;
-                }
-            }
-            else{
-                board[cursor] |= VISITED;
-                cursor = move_cursor(width, height, pixel&PAR_DIR, pixel&PAR_STEP, cursor); // without check
-            }
-        }
-    }
+    paint_frame(row_pointers, board, width, height, 0, 0, width, height, frame_color, 0);
 
 #ifdef DEBUG
     for(int y=0; y<40; ++y){
@@ -199,34 +306,10 @@ int main(){
     }
 #endif
 
-    {
-        char * p0 = (char*) board;
-        for(int y0=0; y0<height; ++y0)
-            for(int x0=0; x0<width; ++x0, ++p0)
-                if( *p0 >= 0 ){
-                    char *p = p0;
-                    int x1 = x0;
-                    for(x1=x0; x1<width && *p>=0; ++x1, ++p)
-                        *(unsigned char*)p |= IS_FRAME;
-
-                    int y1;
-                    for(y1=y0+1, p=p0+width; y1<height; ++y1, p+=width){
-                        int x;
-                        for(x=x0; x<x1 && *p>=0; ++x, ++p)
-                            *(unsigned char*)p |= IS_FRAME;
-                        p -= (x - x0);
-                        if( x < x1 ){ // in-complete row, put back
-                            while( x>x0 ){
-                                *(unsigned char*)p &= ~IS_FRAME;
-                                --x;
-                                ++p;
-                            }
-                            break;
-                        }
-                    }
-
-                    printf("%d %d %d %d\n", x0, y0, x1-x0, y1-y0);
-                }
-    }
+    block_t * found_blocks = NULL;
+    int found_capacity = 0;
+    int found_n = extract_block((char*)board, width, height, 0, 0, width, height, &found_blocks, &found_capacity);
+    for(int i=0; i<found_n; ++i)
+        printf("%d %d %d %d\n", found_blocks[i].x, found_blocks[i].y, found_blocks[i].width, found_blocks[i].height);
     return 0;
 }
