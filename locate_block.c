@@ -17,6 +17,9 @@ const unsigned char VISITED  =  16; // is visited pixel: 0.no, 1.yes
 const unsigned char IMG      =  32; // 0.non-white, 1.white
 const unsigned char IS_FRAME = 128; // is frame: 0.no, 1.yes
 
+inline int min(int a, int b){ return a<b ? a : b; }
+inline int max(int a, int b){ return a>b ? a : b; }
+
 inline int move_cursor(int width, int height, unsigned char pos_dir, unsigned char pos_step, int cursor){
     if( pos_dir )
         if( pos_step )
@@ -249,8 +252,20 @@ void find_block(unsigned char * board, int width, int height, int bound_x, int b
         }
 #endif
 
-        if( found_white_n==1 ){
+        if( 1 <= found_white_n && found_white_n <= 8 ){
             block_t * curr_white_block = *found_blocks + found_offset + found_black_n;
+            int bx = curr_white_block->x;
+            int by = curr_white_block->y;
+            int bw = curr_white_block->width;
+            int bh = curr_white_block->height;
+            for(int j=1; j<found_white_n; ++j, ++curr_white_block){
+                int bx0 = bx;
+                int by0 = by;
+                bx = min(bx, curr_white_block->x);
+                by = min(bx, curr_white_block->y);
+                bw = max(bx0+bw, curr_white_block->x+curr_white_block->width) - bx;
+                bh = max(by0+bh, curr_white_block->y+curr_white_block->height) - by;
+            }
             find_block(board, width, height, curr_white_block->x, curr_white_block->y, curr_white_block->width, curr_white_block->height, found_blocks, found_offset+found_black_n, found_capacity);
         }
         else{
