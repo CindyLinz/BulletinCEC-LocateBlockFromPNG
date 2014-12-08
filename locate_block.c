@@ -13,6 +13,7 @@ const unsigned char TRY_STEP =   2; // current trying step: 0.dec, 1.inc
 const unsigned char PAR_DIR  =   4; // parent h or v direction: 0.h, 1.v
 const unsigned char PAR_STEP =   8; // parent step: 0.dec, 1.inc
 const unsigned char VISITED  =  16; // is visited pixel: 0.no, 1.yes
+const unsigned char IMG      =  32; // 0.non-white, 1.white
 const unsigned char IS_FRAME = 128; // is frame: 0.no, 1.yes
 
 inline int move_cursor(int width, int height, unsigned char pos_dir, unsigned char pos_step, int cursor){
@@ -40,23 +41,15 @@ inline int move_cursor(int width, int height, unsigned char pos_dir, unsigned ch
                 return -1;
 }
 
-inline void flood_paint(png_bytepp img, unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, png_bytep frame_color, char neg_mode, int x0, int y0){
+inline void flood_paint(unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, char white_frame, int x0, int y0){
     int cursor0 = y0 * width + x0;
     int cursor = cursor0;
 #ifdef DEBUG
     fprintf(stderr, "flood_paint %dx%d+%d+%d at (%d,%d)\n", bound_width, bound_height, bound_x, bound_y, x0, y0);
 #endif
 
-    {
-        int x3 = x0 * 3;
-        char color_match =
-            img[y0][x3]==frame_color[0] &&
-            img[y0][x3+1]==frame_color[1] &&
-            img[y0][x3+2]==frame_color[2];
-
-        if( !( (!neg_mode && color_match) || (neg_mode && !color_match) ) )
-            return;
-    }
+    if( (white_frame && !(board[cursor0] & IMG)) || (!white_frame && (board[cursor0] & IMG)) )
+        return;
 
     while(1){
         unsigned char pixel = board[cursor];
@@ -101,7 +94,7 @@ inline void flood_paint(png_bytepp img, unsigned char * board, int width, int he
                     int cursor2 = move_cursor(width, height, 1, 1, cursor);
                     if( cursor2>=0 && !(board[cursor2] & VISITED) ){
                         cursor = cursor2;
-                        board[cursor2] = PAR_DIR;
+                        board[cursor2] |= PAR_DIR;
                     }
                 }
             else
@@ -111,7 +104,7 @@ inline void flood_paint(png_bytepp img, unsigned char * board, int width, int he
                     int cursor2 = move_cursor(width, height, 1, 0, cursor);
                     if( cursor2>=0 && !(board[cursor2] & VISITED) ){
                         cursor = cursor2;
-                        board[cursor2] = PAR_DIR | PAR_STEP;
+                        board[cursor2] |= PAR_DIR | PAR_STEP;
                     }
                 }
                 else{
@@ -123,20 +116,12 @@ inline void flood_paint(png_bytepp img, unsigned char * board, int width, int he
                 }
         }
         else{
-            int x3 = cursor % width * 3;
-            int y = cursor / width;
-
-            char color_match =
-                img[y][x3]==frame_color[0] &&
-                img[y][x3+1]==frame_color[1] &&
-                img[y][x3+2]==frame_color[2];
-
-            if( (!neg_mode && color_match) || (neg_mode && !color_match) ){
+            if( (white_frame && (board[cursor] & IMG)) || (!white_frame && !(board[cursor] & IMG)) ){
                 board[cursor] |= VISITED | IS_FRAME;
                 int cursor2 = move_cursor(width, height, 0, 0, cursor);
                 if( cursor2>=0 && !(board[cursor2] & VISITED) ){
                     cursor = cursor2;
-                    board[cursor2] = PAR_STEP;
+                    board[cursor2] |= PAR_STEP;
                 }
             }
             else{
@@ -147,12 +132,12 @@ inline void flood_paint(png_bytepp img, unsigned char * board, int width, int he
     }
 }
 
-inline void paint_frame(png_bytepp img, unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, png_bytep frame_color, char neg_mode){
+inline void paint_frame(unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, char white_frame){
     {
         unsigned char * p = board + bound_y * width + bound_x;
         for(int y=bound_y; y<bound_y+bound_height; ++y){
             for(int x=bound_x; x<bound_x+bound_width; ++x, ++p)
-                *p = 0;
+                *p &= IMG;
             p = p - bound_width + width;
         }
     }
@@ -162,9 +147,9 @@ inline void paint_frame(png_bytepp img, unsigned char * board, int width, int he
         unsigned char * p2 = board + (bound_y+bound_height-1) * width + bound_x;
         for(int x=bound_x; x<bound_x+bound_width; ++x, ++p1, ++p2){
             if( !(*p1 & VISITED) )
-                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, x, bound_y);
+                flood_paint(board, width, height, bound_x, bound_y, bound_width, bound_height, white_frame, x, bound_y);
             if( !(*p2 & VISITED) )
-                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, x, bound_y+bound_height-1);
+                flood_paint(board, width, height, bound_x, bound_y, bound_width, bound_height, white_frame, x, bound_y+bound_height-1);
         }
     }
 
@@ -173,9 +158,9 @@ inline void paint_frame(png_bytepp img, unsigned char * board, int width, int he
         unsigned char * p2 = board + bound_y * width + bound_x+bound_width-1;
         for(int y=bound_y; y<bound_y+bound_height; ++y, p1+=width, p2+=width){
             if( !(*p1 & VISITED) )
-                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, bound_x, y);
+                flood_paint(board, width, height, bound_x, bound_y, bound_width, bound_height, white_frame, bound_x, y);
             if( !(*p2 & VISITED) )
-                flood_paint(img, board, width, height, bound_x, bound_y, bound_width, bound_height, frame_color, neg_mode, bound_x+bound_width-1, y);
+                flood_paint(board, width, height, bound_x, bound_y, bound_width, bound_height, white_frame, bound_x+bound_width-1, y);
         }
     }
 }
@@ -286,15 +271,27 @@ int main(){
 
     png_bytepp row_pointers = png_get_rows(png_ptr, info_ptr);
 
-    fprintf(stderr, "row_pointers=%p\n", (void*)row_pointers);
-    png_bytep frame_color = row_pointers[0];
-    fprintf(stderr, "frame_color=(%d,%d,%d)\n", (int)frame_color[0], (int)frame_color[1], (int)frame_color[2]);
-    fprintf(stderr, "empty_color=(%d,%d,%d) (FYI, not used)\n", (int)row_pointers[50][150], (int)row_pointers[50][151], (int)row_pointers[50][152]);
-
     int size = width * height;
     unsigned char *board = (unsigned char*) malloc(size);
 
-    paint_frame(row_pointers, board, width, height, 0, 0, width, height, frame_color, 0);
+    {
+        unsigned char *p = board;
+        for(int y=0; y<height; ++y)
+            for(int x3=0; x3<width*3; x3+=3, ++p)
+                if(
+                    row_pointers[y][x3]==255 &&
+                    row_pointers[y][x3+1]==255 &&
+                    row_pointers[y][x3+2]==255
+                )
+                    *p = IMG;
+                else
+                    *p = 0;
+    }
+
+    png_destroy_read_struct(&png_ptr, &info_ptr, &end_info);
+
+
+    paint_frame(board, width, height, 0, 0, width, height, 0);
 
 #ifdef DEBUG
     for(int y=0; y<40; ++y){
