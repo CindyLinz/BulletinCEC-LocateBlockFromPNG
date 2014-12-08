@@ -7,6 +7,7 @@
 
 #define BLOCK_INC (64)
 #define NOISE_THRESHOLD (20)
+#define SMALL_TABLE_THRESHOLD (8)
 
 // board pixel bits usage:
 const unsigned char TRY_DIR  =   1; // current trying h or v direction: 0.h, 1.v
@@ -253,7 +254,7 @@ void find_block(unsigned char * board, int width, int height, int bound_x, int b
         }
 #endif
 
-        if( 1 <= found_white_n && found_white_n <= 8 ){
+        if( 1 <= found_white_n && found_white_n <= SMALL_TABLE_THRESHOLD ){
             block_t * curr_white_block = *found_blocks + found_offset + found_black_n;
             int bx = curr_white_block->x;
             int by = curr_white_block->y;
