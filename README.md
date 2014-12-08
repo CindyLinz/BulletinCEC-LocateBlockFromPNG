@@ -26,6 +26,10 @@ x2 y2 width2 height2
 ...
 ```
 
+# SAMPLE
++ [sample input](https://github.com/CindyLinz/BulletinCEC-LocateBlockFromPNG/blob/master/input.png)
++ [sample output](https://github.com/CindyLinz/BulletinCEC-LocateBlockFromPNG/blob/master/output.txt)
+
 # LICENSE
 
 Copyright 2014, Cindy Wang (CindyLinz) Licensed under the MIT license.
