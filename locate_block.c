@@ -6,6 +6,7 @@
 //#define DEBUG
 
 #define BLOCK_INC (64)
+#define NOISE_THRESHOLD (20)
 
 // board pixel bits usage:
 const unsigned char TRY_DIR  =   1; // current trying h or v direction: 0.h, 1.v
@@ -44,16 +45,16 @@ inline int move_cursor(int width, int height, unsigned char pos_dir, unsigned ch
 inline void flood_paint(unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, char white_frame, int x0, int y0){
     int cursor0 = y0 * width + x0;
     int cursor = cursor0;
-#ifdef DEBUG
-    fprintf(stderr, "flood_paint %dx%d+%d+%d at (%d,%d)\n", bound_width, bound_height, bound_x, bound_y, x0, y0);
-#endif
-
     if( (white_frame && !(board[cursor0] & IMG)) || (!white_frame && (board[cursor0] & IMG)) )
         return;
 
+#ifdef DEBUG
+    fprintf(stderr, "flood_paint(%d) %dx%d+%d+%d at (%d,%d)\n", (int) white_frame, bound_width, bound_height, bound_x, bound_y, x0, y0);
+#endif
+
     while(1){
         unsigned char pixel = board[cursor];
-#ifdef DEBUG
+#ifdef DEBUG2
         {
             int x = cursor % width;
             int y = cursor / width;
@@ -163,17 +164,25 @@ inline void paint_frame(unsigned char * board, int width, int height, int bound_
                 flood_paint(board, width, height, bound_x, bound_y, bound_width, bound_height, white_frame, bound_x+bound_width-1, y);
         }
     }
+
+#ifdef DEBUG
+    for(int y=bound_y; y<bound_y+bound_height && y<bound_y+40; ++y){
+        for(int x=bound_x; x<bound_x+bound_width && x<bound_x+150; ++x)
+            fprintf(stderr, "%c", (board[y*width+x] & IS_FRAME) ? '#' : '.');
+        fprintf(stderr, "\n");
+    }
+#endif
 }
 
 typedef struct {
     int x, y, width, height;
 } block_t;
 
-inline int extract_block(char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, block_t** found_blocks, int* found_capacity){
+inline int extract_block(char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, block_t** found_blocks, int found_offset, int* found_capacity){
     int found_n = 0;
 
     char * p0 = board + bound_y * width + bound_x;
-    for(int y0=bound_y; y0<bound_y+bound_height; ++y0)
+    for(int y0=bound_y; y0<bound_y+bound_height; ++y0){
         for(int x0=bound_x; x0<bound_x+bound_width; ++x0, ++p0)
             if( *p0 >= 0 ){
                 char *p = p0;
@@ -197,21 +206,60 @@ inline int extract_block(char * board, int width, int height, int bound_x, int b
                     }
                 }
 
-                if( found_n >= *found_capacity ){
-                    *found_capacity += BLOCK_INC;
-                    *found_blocks = realloc(*found_blocks, sizeof(block_t) * *found_capacity);
-                }
-                (*found_blocks)[found_n].x = x0;
-                (*found_blocks)[found_n].y = y0;
-                (*found_blocks)[found_n].width = x1-x0;
-                (*found_blocks)[found_n].height = y1-y0;
-                ++found_n;
-#ifdef DEBUG
-                fprintf(stderr, "%d %d %d %d\n", x0, y0, x1-x0, y1-y0);
+                if( x1-x0 > NOISE_THRESHOLD && y1-y0 > NOISE_THRESHOLD ){
+                    if( found_offset + found_n >= *found_capacity ){
+                        *found_capacity += BLOCK_INC;
+                        *found_blocks = realloc(*found_blocks, sizeof(block_t) * *found_capacity);
+                    }
+                    (*found_blocks)[found_offset+found_n].x = x0;
+                    (*found_blocks)[found_offset+found_n].y = y0;
+                    (*found_blocks)[found_offset+found_n].width = x1-x0;
+                    (*found_blocks)[found_offset+found_n].height = y1-y0;
+                    ++found_n;
+#ifdef DEBUG2
+                    fprintf(stderr, "%d %d %d %d\n", x0, y0, x1-x0, y1-y0);
 #endif
+                }
             }
+        p0 = p0 - bound_width + width;
+    }
 
     return found_n;
+}
+
+void find_block(unsigned char * board, int width, int height, int bound_x, int bound_y, int bound_width, int bound_height, block_t** found_blocks, int found_offset, int* found_capacity){
+    paint_frame(board, width, height, bound_x, bound_y, bound_width, bound_height, 1);
+    int found_black_n = extract_block((char*)board, width, height, bound_x, bound_y, bound_width, bound_height, found_blocks, found_offset, found_capacity);
+#ifdef DEBUG
+    fprintf(stderr, "found_black_n=%d\n", found_black_n);
+    for(int i=0; i<found_black_n; ++i){
+        block_t * curr_black_block = *found_blocks + found_offset + i;
+        fprintf(stderr, "  %d %d %d %d\n", curr_black_block->x, curr_black_block->y, curr_black_block->width, curr_black_block->height);
+    }
+#endif
+    for(int i=0; i<found_black_n; ++i){
+        block_t * curr_black_block = *found_blocks + found_offset + i;
+        paint_frame(board, width, height, curr_black_block->x, curr_black_block->y, curr_black_block->width, curr_black_block->height, 0);
+        int found_white_n = extract_block((char*)board, width, height, curr_black_block->x, curr_black_block->y, curr_black_block->width, curr_black_block->height, found_blocks, found_offset+found_black_n, found_capacity);
+#ifdef DEBUG
+        fprintf(stderr, "found_white_n=%d\n", found_white_n);
+        for(int j=0; j<found_white_n; ++j){
+            block_t * curr_white_block = *found_blocks + found_offset + found_black_n + j;
+            fprintf(stderr, "  %d %d %d %d\n", curr_white_block->x, curr_white_block->y, curr_white_block->width, curr_white_block->height);
+        }
+#endif
+
+        if( found_white_n==1 ){
+            block_t * curr_white_block = *found_blocks + found_offset + found_black_n;
+            find_block(board, width, height, curr_white_block->x, curr_white_block->y, curr_white_block->width, curr_white_block->height, found_blocks, found_offset+found_black_n, found_capacity);
+        }
+        else{
+            for(int j=0; j<found_white_n; ++j){
+                block_t * curr_white_block = *found_blocks + found_offset + found_black_n + j;
+                printf("%d %d %d %d\n", curr_white_block->x, curr_white_block->y, curr_white_block->width, curr_white_block->height);
+            }
+        }
+    }
 }
 
 int main(){
@@ -290,23 +338,9 @@ int main(){
 
     png_destroy_read_struct(&png_ptr, &info_ptr, &end_info);
 
-
-    paint_frame(board, width, height, 0, 0, width, height, 0);
-
-#ifdef DEBUG
-    for(int y=0; y<40; ++y){
-        for(int x=0; x<150; ++x){
-            int cursor = y*width + x;
-            fprintf(stderr, "%c", ((board[cursor] & IS_FRAME) ? '#' : '.'));
-        }
-        fprintf(stderr, "\n");
-    }
-#endif
-
     block_t * found_blocks = NULL;
     int found_capacity = 0;
-    int found_n = extract_block((char*)board, width, height, 0, 0, width, height, &found_blocks, &found_capacity);
-    for(int i=0; i<found_n; ++i)
-        printf("%d %d %d %d\n", found_blocks[i].x, found_blocks[i].y, found_blocks[i].width, found_blocks[i].height);
+    find_block(board, width, height, 0, 0, width, height, &found_blocks, 0, &found_capacity);
+
     return 0;
 }
