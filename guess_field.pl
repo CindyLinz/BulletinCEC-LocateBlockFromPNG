@@ -91,7 +91,7 @@ for my $row (@row) {
 my @final_row;
 for my $row (@heading_row) {
     my $height = reduce { max $a, $b->[3] } 0, @$row;
-    if( $height > 230 ) {
+    if( $height > 210 ) {
         for my $b (@$row) {
             $b->[3] = $height;
         }
