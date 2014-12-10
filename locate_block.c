@@ -196,6 +196,9 @@ inline int extract_block(char * board, int width, int height, int bound_x, int b
 
                 int y1;
                 for(y1=y0+1, p=p0+width; y1<bound_y+bound_height; ++y1, p+=width){
+                    if( (x0>0 && *(p-1)>=0) || (x1<width && *(p+(x1-x0))>=0) )
+                        break;
+
                     int x;
                     for(x=x0; x<x1 && *p>=0; ++x, ++p)
                         *(unsigned char*)p |= IS_FRAME;
