@@ -35,7 +35,7 @@ x2 y2 width2 height2
 ```
 
 output.json (如果猜得正確的話, 會依該頁公報中候選人的順序排列)
-```json
+```
 [ { "號次":
     [x, y, width, height]
   , "相片":
